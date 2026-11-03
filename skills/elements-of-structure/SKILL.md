@@ -13,7 +13,8 @@ description: >-
   merging a stack, when a reviewer wants prose held to the same bar as code.
 compatibility: >-
   node 22 or later, git, and the four tools that tools/README.md names: cloc,
-  vale, ast-grep, reviewdog. Optional: codex CLI for adversarial evaluation.
+  vale 3.25.1 or later, ast-grep, reviewdog. Optional: codex CLI for
+  adversarial evaluation.
 metadata:
   tags: code-review, comments, documentation, prose, diff-review
   source: The Elements of Documentation (22 rules, 15 sins, 6 drafts)
@@ -41,9 +42,11 @@ taste.
 ## Process
 
 The scripts are in `tools/bin` of this repository, two levels above this file;
-`tools/README.md` describes them. Check out the head of the change, and run
-them from inside the repository under review. Each takes `--base <base>` and
-reads the change since the merge base of `<base>` and `HEAD`.
+`tools/README.md` describes them. Below, `$TOOLS` is that directory. Check out
+the head of the change, and run the scripts from inside the repository under
+review. The three `comment-` scripts take `--base <base>` and read the change
+since the merge base of `<base>` and `HEAD`. `repeated-facts` reads the output
+of `comment-extract`.
 
 ### Step 1 — Extract, don't skim
 
@@ -51,7 +54,7 @@ Never review from a rendered diff by eye. Pull the added comment lines
 mechanically, with file and line number, so every finding can be quoted:
 
 ```bash
-tools/bin/comment-extract --base <base>
+$TOOLS/comment-extract --base <base>
 ```
 
 Use a local ref for `<base>`, and verify you got a non-zero line count before
@@ -61,29 +64,32 @@ so confidently.
 ### Step 2 — Measure the ratio
 
 ```bash
-tools/bin/comment-count --base <base>
+$TOOLS/comment-count --base <base>
 ```
 
 This reports comment and code lines per file and an overall ratio. Read it for
-*distribution*, not the aggregate. An overall 0.45 is unremarkable; a single
-file at 2.25, or a file with comment lines and **zero** code lines, is the
-finding.
+*distribution*, not the aggregate. cloc counts a line with code and a trailing
+comment as code, so its comment column is lower than Step 1's line count. The
+count of comment lines added comes from Step 1. An overall 0.45 is unremarkable;
+a single file at 2.25, or a file with comment lines and **zero** code lines, is
+the finding.
 
 ### Step 3 — Lint the signatures
 
 ```bash
-tools/bin/comment-lint --base <base>
+$TOOLS/comment-lint --base <base>
 ```
 
 Some sins have a textual signature: the Tombstone, the Load-Bearing Link, the
 Afternoon, the Apology Tour, the Confident Essay, and a line number cited in
-another file. Vale reports each one with its rule name. Each report is a
-candidate. Apply the two tests in Step 5 before calling it a finding.
+another file. Vale reports each one with its rule name, and a comment that the
+change grows past 60 words counts as added. Each report is a candidate. Apply
+the two tests in Step 5 before calling it a finding.
 
 ### Step 4 — Count the homes
 
 ```bash
-tools/bin/comment-extract --base <base> | tools/bin/repeated-facts
+$TOOLS/comment-extract --base <base> | $TOOLS/repeated-facts
 ```
 
 This is the highest-yield step and the one a human reviewer skips. It reports
