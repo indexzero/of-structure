@@ -1,0 +1,2 @@
+# cloc reads one option per line. comment-count adds --by-file, --json,
+# --quiet and --skip-uniqueness itself.

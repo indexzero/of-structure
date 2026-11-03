@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Count comment and code lines per file with cloc. With --check, hold each
 // file to the limits and exceptions in comments.json.
-import { cli, listFiles, loadConfig, mergeBase, run, selector } from '../lib/common.mjs';
+import { cli, finish, listFiles, loadConfig, mergeBase, run } from '../lib/common.mjs';
 
 const USAGE = `usage: comment-count [--base <rev>] [--head <rev>] [--config <file>] [--check] [--json] [path...] [-- <cloc option>...]
 
@@ -10,9 +10,16 @@ With --base, count the lines that <head> (default HEAD) adds or modifies
 since its merge base with <rev>. cloc compares commits, so uncommitted
 changes are not counted.
 
+cloc counts a line that holds both code and a comment as code. Its options
+file is the "cloc" key of comments.json.
+
 --check applies limits.ratio (comment lines per code line) to each file,
 and limits.physical (lines per file) without --base. With --base, a file
-with fewer than limits.minLines written lines is not held to the ratio.`;
+with fewer than limits.minLines written lines is not held to the ratio.
+--json prints the rows. A ratio is null when a file has comment lines and
+no code lines.
+
+Exits 1 when --check finds a file over a limit, and 2 when it cannot run.`;
 
 const opts = cli(
   {
@@ -25,36 +32,51 @@ const opts = cli(
   USAGE
 );
 const config = loadConfig(opts.config);
-const keep = selector(config, opts.paths);
-const CLOC = ['--by-file', '--json', '--quiet', '--skip-uniqueness', ...config.cloc, ...opts.passthrough];
+// --config also keeps cloc from reading ~/.config/cloc/options.txt.
+const CLOC = ['--by-file', '--json', '--quiet', '--skip-uniqueness', ...(config.cloc ? ['--config', config.cloc] : []), ...opts.passthrough];
 
 let files;
 let rows;
 if (opts.base) {
   const base = mergeBase(opts.base, opts.head);
-  files = listFiles(keep, { base, against: opts.head });
+  files = listFiles(config, opts.paths, { base, against: opts.head });
+  // cloc reports a renamed file under its old path.
+  const renamed = new Map();
+  const status = run('git', ['diff', '--name-status', '-M', '-z', base, opts.head]).stdout.split('\0');
+  for (let i = 0; i < status.length; i++) {
+    if (/^[RC]\d*$/.test(status[i])) {
+      renamed.set(status[i + 2], status[i + 1]);
+      i += 2;
+    }
+  }
   const out = files.length ? JSON.parse(run('cloc', ['--git', '--diff', base, opts.head, ...CLOC]).stdout) : {};
   const n = (part, f, k) => out[part]?.[f]?.[k] ?? 0;
   rows = files
-    .filter(f => out.added?.[f] || out.modified?.[f] || out.same?.[f] || out.removed?.[f])
-    .map(file => ({
+    .map(file => ({ file, key: renamed.get(file) ?? file }))
+    .filter(({ key }) => ['added', 'modified', 'same', 'removed'].some(part => out[part]?.[key]))
+    .map(({ file, key }) => ({
       file,
-      comment: n('added', file, 'comment') + n('modified', file, 'comment'),
-      code: n('added', file, 'code') + n('modified', file, 'code'),
+      comment: n('added', key, 'comment') + n('modified', key, 'comment'),
+      code: n('added', key, 'code') + n('modified', key, 'code'),
     }));
-  if (opts.head === 'HEAD') {
-    const dirty = run('git', ['status', '--porcelain', '--', ...files]).stdout.trim();
-    if (dirty) console.error(`comment-count: counts commits; ${dirty.split('\n').length} selected file(s) have uncommitted changes`);
+  if (opts.head === 'HEAD' && files.length) {
+    const dirty = run('git', ['status', '--porcelain', '-z', '--', ...files]).stdout.split('\0').filter(Boolean);
+    if (dirty.length) console.error(`comment-count: counts commits; ${dirty.length} selected file(s) have uncommitted changes`);
   }
 } else {
-  files = listFiles(keep);
+  files = listFiles(config, opts.paths);
   const out = files.length ? JSON.parse(run('cloc', ['--list-file=-', ...CLOC], { input: files.join('\n') }).stdout) : {};
   rows = files
     .filter(f => out[f])
     .map(file => ({ file, comment: out[file].comment, code: out[file].code, physical: out[file].comment + out[file].code + out[file].blank }));
 }
-const skipped = files.length - rows.length;
-if (skipped) console.error(`comment-count: cloc does not know the language of ${skipped} selected file(s); they are not counted`);
+// cloc skips a language it does not know, and always skips the
+// directories .config and .venv, whatever --exclude-dir says.
+const counted = new Set(rows.map(r => r.file));
+const skipped = files.filter(f => !counted.has(f));
+if (skipped.length) {
+  console.error(`comment-count: cloc did not count ${skipped.length} selected file(s), such as ${skipped.slice(0, 3).join(', ')}. It skips languages it does not know, and every .config and .venv directory.`);
+}
 
 const ratio = r => (r.code ? r.comment / r.code : r.comment ? Infinity : 0);
 const total = rows.reduce((t, r) => ({ comment: t.comment + r.comment, code: t.code + r.code }), { comment: 0, code: 0 });
@@ -80,18 +102,19 @@ if (opts.check) {
   }
 }
 
+let text;
 if (opts.json) {
-  console.log(JSON.stringify({ rows: rows.map(r => ({ ...r, ratio: ratio(r) })), total: { ...total, ratio: ratio(total) }, violations }, null, 2));
+  const json = r => ({ ...r, ratio: Number.isFinite(ratio(r)) ? ratio(r) : null });
+  text = `${JSON.stringify({ rows: rows.map(json), total: json(total), violations }, null, 2)}\n`;
 } else {
   const show = n => (Number.isFinite(n) ? n.toFixed(2) : 'inf');
   const width = Math.max(20, ...rows.map(r => r.file.length));
-  const line = (f, c, k, q) => console.log(`${f.padEnd(width)} ${String(c).padStart(6)} ${String(k).padStart(6)} ${q.padStart(6)}`);
-  line('file', 'cmt', 'code', 'ratio');
+  const line = (f, c, k, q) => `${f.padEnd(width)} ${String(c).padStart(6)} ${String(k).padStart(6)} ${q.padStart(6)}\n`;
+  text = line('file', 'cmt', 'code', 'ratio');
   for (const r of [...rows].sort((a, b) => b.comment + b.code - (a.comment + a.code))) {
-    if (r.comment + r.code) line(r.file, r.comment, r.code, show(ratio(r)));
+    if (r.comment + r.code) text += line(r.file, r.comment, r.code, show(ratio(r)));
   }
-  console.log('-'.repeat(width + 21));
-  line('TOTAL', total.comment, total.code, show(ratio(total)));
-  for (const v of violations) console.log(`over the limit: ${v}`);
+  text += `${'-'.repeat(width + 21)}\n${line('TOTAL', total.comment, total.code, show(ratio(total)))}`;
+  for (const v of violations) text += `over the limit: ${v}\n`;
 }
-process.exit(violations.length ? 1 : 0);
+finish(text, violations.length ? 1 : 0);

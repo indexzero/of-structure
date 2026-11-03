@@ -24,6 +24,7 @@
 // places state the same fact authoritatively. It is not a finding when a test
 // names the rule it tests and points at where that rule lives.
 import fs from 'node:fs';
+import tty from 'node:tty';
 import { parseArgs } from 'node:util';
 
 const USAGE = 'usage: comment-extract [...] | repeated-facts [--min-files <n>] [--ngram <n>] [--top <n>] [--verbatim]';
@@ -42,13 +43,23 @@ try {
   console.error(`${e.message}\n${USAGE}`);
   process.exit(2);
 }
-if (values.help || process.stdin.isTTY) {
+// tty.isatty, not process.stdin.isTTY: touching process.stdin puts fd 0 in
+// non-blocking mode, and the read below then fails with EAGAIN on a pipe.
+if (values.help || tty.isatty(0)) {
   console.log(USAGE);
   process.exit(values.help ? 0 : 2);
 }
-const MIN_FILES = Number(values['min-files']);
-const NGRAM = Number(values.ngram);
-const TOP = Number(values.top);
+const count = name => {
+  const n = Number(values[name]);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error(`--${name} must be a whole number of 1 or more\n${USAGE}`);
+    process.exit(2);
+  }
+  return n;
+};
+const MIN_FILES = count('min-files');
+const NGRAM = count('ngram');
+const TOP = count('top');
 
 // Deliberately short. An aggressive stop list hides the repetitions we hunt.
 const STOP = new Set(

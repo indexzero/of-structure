@@ -1,13 +1,15 @@
 # Sin 2, the Afternoon: "first I looked at X, then I noticed Y". The story of
-# the work is not a property of the code.
+# the work is not a property of the code. "we" counts only where it opens a
+# clause, because "if we found an @" describes the program.
 extends: existence
 message: "'%s' narrates the work. State what is true of the code."
 link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#the-fifteen-sins
 level: warning
 scope: comment
 ignorecase: true
+nonword: true
 tokens:
-  - '(?:I|we) (?:tried|noticed|found|realized|realised|discovered|decided|wanted)'
-  - 'at first'
-  - 'turns out'
-  - 'it turned out'
+  - '\bI (?:tried|noticed|found|realized|realised|discovered|decided|wanted)\b'
+  - '(?<![\w,] )\bwe (?:tried|noticed|found|realized|realised|discovered|decided|wanted)\b'
+  - '\bturns out\b'
+  - '\bit turned out\b'

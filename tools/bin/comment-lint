@@ -1,27 +1,32 @@
 #!/usr/bin/env node
-// Lint the comments of the selected files with Vale. With --base, reviewdog
-// keeps only the findings on lines added since the merge base.
+// Lint the comments of the selected files with Vale, and report the
+// findings through reviewdog.
 import fs from 'node:fs';
 import path from 'node:path';
-import { addedOnly, cli, fail, listFiles, loadConfig, mergeBase, run, selector } from '../lib/common.mjs';
+import { chunks, cli, comments, fail, finish, listFiles, loadConfig, mergeBase, report, run } from '../lib/common.mjs';
 
 const USAGE = `usage: comment-lint [--base <rev>] [--config <file>] [--level <level>] [--reporter <name>] [path...] [-- <vale option>...]
 
-Vale lints only the comments of a code file. The Vale config is the "vale"
-key of comments.json.
+Reads the working tree. With --base, reports only the findings on lines
+added since the merge base of <rev> and HEAD, uncommitted changes included.
+A finding that spans a comment, such as Comments.Essay, is reported when
+any line of that comment is added.
 
---level     the lowest Vale alert level to report: suggestion, warning
-            (default) or error
---reporter  a reviewdog reporter, used with --base (default local; in CI,
-            for example github-pr-review)
+Vale lints only the comments of a code file. Its config is the "vale" key
+of comments.json, and needs Vale 3.25.1 or later.
 
-Exits 1 when any finding is reported.`;
+--level     the lowest Vale alert level to report: suggestion, warning or
+            error. The default is MinAlertLevel in the Vale config.
+--reporter  a reviewdog reporter (default local). In CI, for example,
+            github-pr-review.
+
+Exits 1 when any finding is reported, and 2 when it cannot run.`;
 
 const opts = cli(
   {
     base: { type: 'string' },
     config: { type: 'string' },
-    level: { type: 'string', default: 'warning' },
+    level: { type: 'string' },
     reporter: { type: 'string', default: 'local' },
   },
   USAGE
@@ -29,30 +34,55 @@ const opts = cli(
 const config = loadConfig(opts.config);
 if (!config.vale) fail(`${config.file}: no "vale" config`);
 
-const base = opts.base && mergeBase(opts.base);
-const files = listFiles(selector(config, opts.paths), { base });
-if (!files.length) process.exit(0);
+// Older Vale lints .mjs, .cjs, .mts and .cts as plain text, and places some
+// comment alerts on the wrong line (fixed in 3.25.1).
+const version = run('vale', ['--version']).stdout.match(/(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number) ?? [0, 0, 0];
+const MIN = [3, 25, 1];
+const differs = version.findIndex((n, i) => n !== MIN[i]);
+if (differs >= 0 && version[differs] < MIN[differs]) fail(`vale ${version.join('.')} is too old; comment-lint needs ${MIN.join('.')} or later: brew upgrade vale`);
 
-// A style that a package provides arrives by `vale sync`. Sync once, when a
-// style the config names is missing.
+const base = opts.base && mergeBase(opts.base);
+const files = listFiles(config, opts.paths, { base });
+
+// `vale sync` installs the packages that .vale.ini pins. Run it when the
+// pin changes, or when a style it names is missing.
 const ini = fs.readFileSync(config.vale, 'utf8');
 const stylesPath = path.resolve(path.dirname(config.vale), ini.match(/^StylesPath\s*=\s*(.+)$/m)?.[1].trim() ?? 'styles');
 const styles = [...ini.matchAll(/^BasedOnStyles\s*=\s*(.+)$/gm)].flatMap(m => m[1].split(',').map(s => s.trim()));
-if (styles.some(s => s !== 'Vale' && !fs.existsSync(path.join(stylesPath, s)))) {
+const pin = ini.match(/^Packages\s*=.*$/m)?.[0] ?? '';
+const stamp = path.join(stylesPath, '.synced-packages');
+const synced = fs.existsSync(stamp) && fs.readFileSync(stamp, 'utf8') === pin;
+if (pin && (!synced || styles.some(s => s !== 'Vale' && !fs.existsSync(path.join(stylesPath, s))))) {
   run('vale', ['--config', config.vale, 'sync']);
+  fs.writeFileSync(stamp, pin);
 }
 
-const vale = run(
-  'vale',
-  ['--config', config.vale, '--output=line', `--minAlertLevel=${opts.level}`, '--no-exit', ...opts.passthrough, ...files],
-  { check: false }
-);
-if (vale.status !== 0) fail(`vale exited ${vale.status}\n${vale.stderr}`);
-
-if (base) {
-  const r = addedOnly(vale.stdout, base, { reporter: opts.reporter, name: 'comment-lint', failOn: 'any' });
-  process.stdout.write(r.stdout);
-  process.exit(r.status);
+const SEVERITY = { error: 'ERROR', warning: 'WARNING', suggestion: 'INFO' };
+const findings = [];
+for (const part of files.length ? chunks(files) : []) {
+  const level = opts.level ? [`--minAlertLevel=${opts.level}`] : [];
+  const vale = run('vale', ['--config', config.vale, '--output=JSON', '--no-exit', ...level, ...opts.passthrough, ...part], { check: false });
+  if (vale.status !== 0) fail(`vale exited ${vale.status}\n${vale.stderr}`);
+  for (const [file, alerts] of Object.entries(JSON.parse(vale.stdout || '{}'))) {
+    for (const a of alerts) {
+      findings.push({ file, line: a.Line, column: a.Span[0], check: a.Check, message: `${a.Check}:${a.Message}`, severity: SEVERITY[a.Severity] });
+    }
+  }
 }
-process.stdout.write(vale.stdout);
-process.exit(vale.stdout.trim() ? 1 : 0);
+
+// Vale places an Essay alert on the first line of its comment. Give it the
+// comment's last line too, so a comment that the change grows is reported.
+if (base && findings.some(f => f.check === 'Comments.Essay')) {
+  const byFile = Map.groupBy(comments(config, files), c => c.file);
+  for (const f of findings.filter(f => f.check === 'Comments.Essay')) {
+    const list = byFile.get(f.file) ?? [];
+    let i = list.findIndex(c => c.line <= f.line && f.line <= c.endLine);
+    if (i < 0) continue;
+    let end = list[i].endLine;
+    while (list[i + 1]?.line === end + 1) end = list[++i].endLine;
+    f.endLine = end;
+  }
+}
+
+const { kept, status } = report(findings, { base, reporter: opts.reporter, name: 'comment-lint', failOn: 'any' });
+finish(kept.map(f => `${f.file}:${f.line}:${f.column}:${f.message}\n`).join(''), status);

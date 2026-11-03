@@ -1,5 +1,8 @@
 # Rule 18: locality is a claim. A line number in another file moves with
-# every edit to that file, and nothing checks it.
+# every edit to that file, and nothing checks it. The forms are
+# file.ext:12, a bare :12 that continues a citation, a #L12 anchor on a
+# branch URL, and "file.js line 12". Vale joins raw entries into one
+# regex, so the forms are alternatives in one entry.
 extends: existence
 message: "'%s' cites a line number. Name the symbol instead."
 link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#rule-18-sign-the-cliffs-skip-the-coastline-comments
@@ -7,4 +10,4 @@ level: warning
 scope: comment
 nonword: true
 raw:
-  - '[\w@./-]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|java|kt|swift|c|cc|cpp|h|md|json|ya?ml):\d+(?:-\d+)?'
+  - '(?:[\w@./-]+\.(?:[cm]?[jt]sx?|py|go|rs|rb|java|kt|swift|c|cc|cpp|h|md|json|ya?ml):\d+(?:-\d+)?|(?<=[\s(,]):\d+(?:-\d+)?\b|/blob/(?:main|master|HEAD)/\S+#L\d+|\.[cm]?[jt]sx? line \d+)'

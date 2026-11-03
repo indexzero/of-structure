@@ -2,19 +2,16 @@
 
 Scripts that measure and lint the comments of a change. Each job has one
 off-the-shelf tool, set up by that tool's own config file. The scripts only
-choose the files, run the tool, and keep the findings on the lines a change
-adds.
+choose the files, run the tool, and keep what a change adds: [reviewdog]
+filters the findings of `comment-lint` and `comment-extract`, and cloc
+compares two commits itself.
 
 | Script | Job | Tool |
 |---|---|---|
 | `bin/comment-count` | comment and code lines per file, and a gate on their ratio | [cloc] |
-| `bin/comment-lint` | the sins that have a textual signature | [Vale] |
+| `bin/comment-lint` | the sins that have a textual signature | [Vale] 3.25.1 or later |
 | `bin/comment-extract` | every comment line, as `file:line:column:text` | [ast-grep] |
 | `bin/repeated-facts` | one fact stated in several files (Rule 15) | none; see below |
-
-With `--base <rev>`, each script looks only at the change since the merge base
-of `<rev>` and `HEAD`. [reviewdog] does that filtering for `comment-lint` and
-`comment-extract`. cloc compares the two commits itself.
 
 Install the tools:
 
@@ -26,34 +23,54 @@ The scripts need node 22 or later, and git.
 
 ## Use
 
-Run the scripts from inside the repository under review:
+Run the scripts from inside the repository under review. `TOOLS` here is
+the `tools/bin` directory of this repository:
 
 ```sh
-tools/bin/comment-count --base main --check src
-tools/bin/comment-lint --base main src
-tools/bin/comment-extract --base main | tools/bin/repeated-facts
+TOOLS=~/Git/indexzero/of-structure/tools/bin
+$TOOLS/comment-count --base main --check src
+$TOOLS/comment-lint --base main src
+$TOOLS/comment-extract --base main | $TOOLS/repeated-facts
 ```
 
-Without `--base`, each script reads every selected file in the working tree.
-Paths after the options narrow the selection. Everything after `--` goes to
-the wrapped tool:
+The scripts read tracked files only. Paths after the options narrow the
+selection, and a path that does not exist is an error. Everything after
+`--` goes to the wrapped tool:
 
 ```sh
-tools/bin/comment-count -- --exclude-lang=JSON
+$TOOLS/comment-lint src -- --filter='.Name=="Comments.Essay"'
 ```
 
-In CI, give `comment-lint` a reviewdog reporter, for example
-`--reporter github-pr-review`.
+`--base <rev>` selects the change since the merge base of `<rev>` and
+`HEAD`. The scripts differ in what they read:
 
-Each script exits 0 when clean, 1 on findings, and 2 when it cannot run.
-`repeated-facts` lists candidates and always exits 0.
+- `comment-lint` and `comment-extract` read the working tree, so
+  uncommitted changes count as added.
+- `comment-count` compares two commits with cloc, `HEAD` or `--head <rev>`
+  against the merge base. It warns when a selected file has uncommitted
+  changes.
+- `repeated-facts` has no `--base`. It reads the output of
+  `comment-extract` on stdin.
+
+`comment-lint` takes a reviewdog reporter, `local` by default. In CI, use
+for example `--reporter github-pr-review`. In a shallow clone, fetch enough
+history for the merge base, for example `fetch-depth: 0` in
+`actions/checkout`.
+
+| Script | Exits 0 | Exits 1 | Exits 2 |
+|---|---|---|---|
+| `comment-count` | clean, or no `--check` | `--check` finds a file over a limit | it cannot run |
+| `comment-lint` | no findings | any finding | it cannot run |
+| `comment-extract` | always, on success | never | it cannot run |
+| `repeated-facts` | always, on success | never | bad options, or stdin is a terminal |
 
 ## Configuration
 
 One file, `comments.json`, selects the files and names each tool's config. A
 script takes the first that exists of `--config <file>`, `.comments.json` at
-the repository root, and `tools/comments.json`. The file it takes is the whole
-configuration. Configs do not merge.
+the repository root, and `tools/comments.json`. `--config` is relative to
+the current directory. The file it takes is the whole configuration.
+Configs do not merge.
 
 | Key | Meaning |
 |---|---|
@@ -65,27 +82,52 @@ configuration. Configs do not merge.
 | `exceptions` | per file, `{ "ratio" or "physical", "reason" }`. A full run reports an exception whose file is gone. |
 | `vale` | the Vale config, relative to `comments.json` |
 | `astGrep` | the ast-grep config, relative to `comments.json` |
-| `cloc` | extra cloc options |
+| `cloc` | a cloc options file, one option per line, relative to `comments.json` |
 
-cloc counts a line that holds both code and a comment as code. The scripts
-pass `--skip-uniqueness`, because by default cloc counts identical files once.
+git matches the globs as `:(glob)` pathspecs. `**` crosses every directory,
+dot-directories too, and braces are not supported.
+
+The default covers JavaScript and TypeScript. The deleted
+`elements-of-structure` scripts also read the `#` comments of `.yml` files,
+and these scripts do not: a YAML file needs an ast-grep rule
+(`language: Yaml`) and a Vale View before both tools read its comments.
+
+### Counting
+
+cloc counts a line that holds both code and a comment as code. So its
+comment column is lower than the line count of `comment-extract`, which
+lists every comment line. A findings file takes `comment_lines_added` from
+`comment-extract`.
+
+The scripts pass `--skip-uniqueness`, because by default cloc counts
+identical files once. They pass the options file with `--config`, which also
+keeps cloc from reading `~/.config/cloc/options.txt`. cloc never reads a
+`.config` or `.venv` directory, whatever its options say. `comment-count`
+names each selected file that cloc did not count.
 
 ### The Comments style
 
-`vale/.vale.ini` applies two styles to comments. Slop comes from the
-[vale-llm-slop] package, pinned at v0.1.0, and `comment-lint` installs it with
-`vale sync` on its first run. Comments is in `vale/styles/Comments`. Each of
+`vale/.vale.ini` applies two styles to comments, at `MinAlertLevel = warning`
+unless `--level` says otherwise. Slop comes from the [vale-llm-slop]
+package, pinned at v0.1.0. `comment-lint` runs `vale sync` when the pin
+changes or a style is missing. Comments is in `vale/styles/Comments`. Each of
 its rules is a detection from `skills/elements-of-structure/references/rules.md`:
 
 | Rule | Sin or rule | Flags |
 |---|---|---|
 | `Essay` | Sin 15, the Confident Essay | a comment of more than 60 words |
-| `LineNumber` | Rule 18, locality | `file.ext:NN` citations |
+| `LineNumber` | Rule 18, locality | `file.ext:12`, a following `:134`, `#L12` on a branch URL, "file.js line 12" |
 | `LoadBearingLink` | Sin 10, the Load-Bearing Link | `#123`, tracker keys, orckit ids such as `D-060`, `T25`, `AD7` |
-| `Tombstone` | Sin 4, the Tombstone | the code's past: "it used to", "was replaced by" |
-| `Afternoon` | Sin 2, the Afternoon | "we tried", "turns out" |
+| `Tombstone` | Sin 4, the Tombstone | the code's past, with the code as subject: "it used to", "this was replaced" |
+| `Afternoon` | Sin 2, the Afternoon | "I tried", a clause that opens "we found", "turns out" |
 | `Apology` | Sin 5, the Apology Tour | "hacky", "sorry" |
-| `Aspiration` | Rule 18 and Sin 9 | `TODO`, "for now", "will be added" |
+| `Aspiration` | Rule 18 and Sin 9 | `TODO`, `FIXME`, a line that opens "todo", "for now" |
+
+Vale treats a run of `//` lines as one comment, and so a run of trailing
+comments that start in the same column. `Essay` counts the words of that
+whole run. With `--base`, `comment-lint` reports an `Essay` finding when any
+line of its comment is added. Vale masks JSDoc tags, so `Aspiration` cannot
+see an `@todo`.
 
 To change a level or turn a rule off, edit `.vale.ini`, for example
 `Comments.Aspiration = suggestion`.
@@ -102,12 +144,12 @@ restated in different words shares only its rare words, and the term pass in
 | Tool | Why not |
 |---|---|
 | [IgnaceMaes/comment-ratio] | A GitHub Action only, built on tokei. `comment-count --base --check` does the same job locally and in any CI, with the same limits file. |
-| scc, tokei, the `sloc` npm package | No two-commit diff mode. Two counters would give two sets of numbers for one change. |
+| scc, tokei, the `sloc` npm package | None compares two commits. cloc does. |
 | [aislop] | Its `trivial-comment` and `narrative-comment` rules are the nearest off-the-shelf detector of restating comments. It sends telemetry unless `AISLOP_NO_TELEMETRY=1` is set, and by default it also runs Biome and oxlint. Not run here yet. |
-| `eslint-plugin-unicorn` `expiring-todo-comments` | Ties a comment to a dependency version. It needs ESLint, and `Comments.LineNumber` removes most of the need. |
+| `eslint-plugin-unicorn` `expiring-todo-comments` | Ties a TODO to a dependency version. It needs ESLint. `Comments.Aspiration` flags every TODO, and `Comments.LineNumber` flags the version-bound line citations that would have needed it. |
 | `eslint-plugin-jsdoc` `informative-docs` | Sees only `/** */` blocks that repeat a name. It needs ESLint. |
 | eslint-plugin-sonarjs | Its license is source-available from version 3.0 on, not open source. |
-| strip-comments, decomment, terser, esbuild | They remove every comment. None can choose which. |
+| strip-comments, decomment, terser, esbuild | They strip comments from code. Their options keep comments by pattern, such as license headers, but they write a stripped copy and never report a comment for review. |
 
 ## Tests
 
@@ -115,7 +157,7 @@ restated in different words shares only its rare words, and the term pass in
 node --test tools/test
 ```
 
-The suite builds a small git repository, runs each script against it, and
+The suite builds small git repositories, runs each script against them, and
 skips itself when one of the four tools is missing.
 
 [cloc]: https://github.com/AlDanial/cloc

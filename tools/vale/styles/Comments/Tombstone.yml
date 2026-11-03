@@ -1,7 +1,7 @@
 # Sin 4, the Tombstone: a comment that says what the code used to do. The
-# past has a home already: git. Each token names the code as its subject,
-# because "no longer exists" and "previously opened" also describe state at
-# run time.
+# past has a home already: git. Each token names the code, or a change to
+# it, because "no longer exists", "was removed by discover()" and "the old
+# version of a file" also describe state at run time.
 extends: existence
 message: "'%s' describes the past. History belongs to the log; keep only a trap the next reader could meet."
 link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#rule-18-sign-the-cliffs-skip-the-coastline-comments
@@ -9,13 +9,10 @@ level: warning
 scope: comment
 ignorecase: true
 tokens:
-  - '(?:we|this|it|the code) used to'
-  - '(?:we|this|it|the code) (?:previously|formerly)'
-  - 'previously,? (?:we|this|it|the code)'
-  - '(?:it|this|the code) no longer (?:uses|calls|needs|supports|does|has|reads|writes)'
-  - '(?:this|it) replaced'
-  - 'has been replaced'
-  - 'was replaced by'
-  - '(?:was|were) (?:changed|removed|renamed|rewritten) (?:in|to|from|by|when)'
-  - 'the old (?:code|version|behaviou?r|implementation|way|path)'
+  - '(?:this|it|the code) used to'
+  - '(?:this|it|the code) (?:previously|formerly)'
+  - 'previously,? (?:this|it|the code)'
+  - '(?:this|it|the code) no longer (?:uses|calls|needs|supports|does|has|reads|writes)'
+  - '(?:this|it|the code|the function|the module) (?:was|were|has been) (?:replaced|changed|removed|renamed|rewritten)'
+  - 'the old (?:code|implementation|behaviou?r|way|path) (?:of|in|here|did)'
   - 'before (?:#\d+|this change|the fix|the rewrite|the refactor)'
