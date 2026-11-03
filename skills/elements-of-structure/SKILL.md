@@ -12,7 +12,8 @@ description: >-
   asks why a refactor added more lines of comment than code. Also use it before
   merging a stack, when a reviewer wants prose held to the same bar as code.
 compatibility: >-
-  node (scripts), git. Optional: codex CLI for adversarial evaluation.
+  node 22 or later, git, and the four tools that tools/README.md names: cloc,
+  vale, ast-grep, reviewdog. Optional: codex CLI for adversarial evaluation.
 metadata:
   tags: code-review, comments, documentation, prose, diff-review
   source: The Elements of Documentation (22 rules, 15 sins, 6 drafts)
@@ -39,24 +40,28 @@ taste.
 
 ## Process
 
+The scripts are in `tools/bin` of this repository, two levels above this file;
+`tools/README.md` describes them. Check out the head of the change, and run
+them from inside the repository under review. Each takes `--base <base>` and
+reads the change since the merge base of `<base>` and `HEAD`.
+
 ### Step 1 — Extract, don't skim
 
 Never review from a rendered diff by eye. Pull the added comment lines
 mechanically, with file and line number, so every finding can be quoted:
 
 ```bash
-git diff <base> <head> | node scripts/extract-comments.mjs
+tools/bin/comment-extract --base <base>
 ```
 
-For a GitHub PR whose base has been force-pushed, `gh pr diff` can return
-empty. Prefer local refs (`git diff <base-branch> <head-branch>`) and verify
-you got a non-zero line count before continuing. A silent zero here produces a
-review that finds nothing and says so confidently.
+Use a local ref for `<base>`, and verify you got a non-zero line count before
+continuing. A silent zero here produces a review that finds nothing and says
+so confidently.
 
 ### Step 2 — Measure the ratio
 
 ```bash
-git diff <base> <head> | node scripts/comment-density.mjs
+tools/bin/comment-count --base <base>
 ```
 
 This reports comment and code lines per file and an overall ratio. Read it for
@@ -64,10 +69,21 @@ This reports comment and code lines per file and an overall ratio. Read it for
 file at 2.25, or a file with comment lines and **zero** code lines, is the
 finding.
 
-### Step 3 — Count the homes
+### Step 3 — Lint the signatures
 
 ```bash
-git diff <base> <head> | node scripts/find-repeated-facts.mjs
+tools/bin/comment-lint --base <base>
+```
+
+Some sins have a textual signature: the Tombstone, the Load-Bearing Link, the
+Afternoon, the Apology Tour, the Confident Essay, and a line number cited in
+another file. Vale reports each one with its rule name. Each report is a
+candidate. Apply the two tests in Step 5 before calling it a finding.
+
+### Step 4 — Count the homes
+
+```bash
+tools/bin/comment-extract --base <base> | tools/bin/repeated-facts
 ```
 
 This is the highest-yield step and the one a human reviewer skips. It reports
@@ -80,7 +96,7 @@ testing and points at where the rule lives. The book allows the second
 explicitly: reference says a thing once, teaching says it twice, *and the second
 telling knows it is a second telling*.
 
-### Step 4 — Classify against the rules
+### Step 5 — Classify against the rules
 
 Read `references/rules.md` for the 22 rules and the 15 named sins. The sins are
 the reporting vocabulary: a named error shames faster than a paragraph of
@@ -102,7 +118,7 @@ whether anything is missing. Then apply the converse, which is sharper: *could a
 maintainer violate this comment's claim without noticing?* If no claim can be
 violated, no claim was made.
 
-### Step 5 — Attribute to a draft
+### Step 6 — Attribute to a draft
 
 Read `references/drafts.md`. Six drafts argued this book into existence and they
 do not agree about everything. Citing the one that convicts most sharply keeps
@@ -112,7 +128,7 @@ Attribution also protects you from overreach. Where the drafts split — teachin
 code, derivations, a trap worth naming — say so and report the split rather than
 picking the harshest reading and presenting it as consensus.
 
-### Step 6 — Write the findings file
+### Step 7 — Write the findings file
 
 One file per PR: `PR.<number>.comments.md`. See
 `references/output-template.md` for the shape.

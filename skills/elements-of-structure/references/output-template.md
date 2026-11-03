@@ -81,8 +81,8 @@ Five keys, each doing work. `pr` and `title` name the change. `verdict` is
 one sentence, and it is the whole review compressed — write it last, after the
 findings exist, so it reports rather than predicts.
 
-`comment_lines_added` comes from `scripts/extract-comments.mjs`, not from
-memory. It anchors the count table at the end, and the two must agree.
+`comment_lines_added` comes from `tools/bin/comment-extract --base`, not
+from memory. It anchors the count table at the end, and the two must agree.
 
 `reviewed_against` is a claim about what you read. List the adopted book first,
 then the drafts. Never list a draft you did not open.
