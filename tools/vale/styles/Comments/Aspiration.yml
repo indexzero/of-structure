@@ -1,0 +1,14 @@
+# Rule 18 and Sin 9, the Docs-to-Follow: a TODO in code is a tracked item
+# that escaped tracking.
+extends: existence
+message: "'%s' promises later work. File it where work is tracked."
+link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#rule-18-sign-the-cliffs-skip-the-coastline-comments
+level: warning
+scope: comment
+tokens:
+  - '\bTODO\b'
+  - '\bFIXME\b'
+  - '\bXXX\b'
+  - '(?i)\bfor now\b'
+  - '(?i)\bto follow\b'
+  - '(?i)\bwill be (?:added|fixed|implemented|removed)\b'

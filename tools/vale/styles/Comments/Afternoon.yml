@@ -1,0 +1,13 @@
+# Sin 2, the Afternoon: "first I looked at X, then I noticed Y". The story of
+# the work is not a property of the code.
+extends: existence
+message: "'%s' narrates the work. State what is true of the code."
+link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#the-fifteen-sins
+level: warning
+scope: comment
+ignorecase: true
+tokens:
+  - '(?:I|we) (?:tried|noticed|found|realized|realised|discovered|decided|wanted)'
+  - 'at first'
+  - 'turns out'
+  - 'it turned out'

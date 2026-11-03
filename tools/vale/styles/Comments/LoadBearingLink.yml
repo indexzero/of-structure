@@ -1,0 +1,25 @@
+# Sin 10, the Load-Bearing Link: "see #4127 for why". The reason lives in a
+# record that the reader may not have. The tokens are issue and pull request
+# numbers, tracker keys, and the dispatch, task, gate and finding ids of an
+# orckit run. An ADR lives in the repository, so the reader has it.
+extends: existence
+message: "'%s' points at a record the reader may not have. State the reason here, or drop the reference."
+link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#the-fifteen-sins
+level: warning
+scope: comment
+nonword: true
+tokens:
+  - '(?<![\w&])#\d+\b'
+  - '\b[A-Z][A-Z0-9]*-\d+\b'
+  - '\b(?:[TGFRQ]\d{2}|AD\d+|G\d+-P\d+)\b'
+exceptions:
+  - UTF-8
+  - UTF-16
+  - SHA-1
+  - SHA-256
+  - SHA-384
+  - SHA-512
+  - ISO-8601
+  - ES-2015
+  - 'ECMA-\d+'
+  - 'ADR-\d+'

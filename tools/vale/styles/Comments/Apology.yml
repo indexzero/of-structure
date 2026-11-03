@@ -1,0 +1,14 @@
+# Sin 5, the Apology Tour: "this is a bit hacky, sorry".
+extends: existence
+message: "'%s' apologizes. Say what the code gives up, and when that matters."
+link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#the-fifteen-sins
+level: warning
+scope: comment
+ignorecase: true
+tokens:
+  - hacky
+  - 'a hack'
+  - sorry
+  - kludge
+  - 'not ideal'
+  - 'quick fix'

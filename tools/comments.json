@@ -1,0 +1,13 @@
+{
+  "include": ["**/*.{js,mjs,cjs,jsx,ts,mts,cts,tsx}"],
+  "exclude": [
+    { "glob": "**/{dist,build,generated}/**", "reason": "Build output repeats its source." },
+    { "glob": "**/fixtures/**", "reason": "Test input reproduces outside data." },
+    { "glob": "**/*.min.js", "reason": "Minified files have no authored comments." }
+  ],
+  "limits": { "ratio": 1, "physical": 1000, "minLines": 20 },
+  "exceptions": {},
+  "vale": "vale/.vale.ini",
+  "astGrep": "ast-grep/sgconfig.yml",
+  "cloc": []
+}

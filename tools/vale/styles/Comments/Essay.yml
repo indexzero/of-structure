@@ -1,0 +1,9 @@
+# Sin 15, the Confident Essay: length worn as authority. Vale counts the
+# words of each comment, and a run of // lines is one comment.
+extends: occurrence
+message: "A comment of more than 60 words. Keep the cliff sign; move the rest to the document that owns it."
+link: https://github.com/indexzero/of-structure/blob/main/skills/elements-of-structure/references/rules.md#the-fifteen-sins
+level: warning
+scope: comment
+max: 60
+token: '\b\w+\b'

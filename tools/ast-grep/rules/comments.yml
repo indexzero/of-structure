@@ -1,0 +1,22 @@
+# One rule per language. To extract the comments of another language, add
+# a rule with that language's comment node kind.
+id: comment-javascript
+language: JavaScript
+severity: hint
+message: comment
+rule:
+  kind: comment
+---
+id: comment-typescript
+language: TypeScript
+severity: hint
+message: comment
+rule:
+  kind: comment
+---
+id: comment-tsx
+language: Tsx
+severity: hint
+message: comment
+rule:
+  kind: comment

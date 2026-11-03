@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// Print every comment line of the selected files as file:line:column:text,
+// found by ast-grep's parser, so a string that holds // is not a comment.
+// With --base, reviewdog keeps only the lines added since the merge base.
+import { addedOnly, cli, fail, listFiles, loadConfig, mergeBase, run, selector } from '../lib/common.mjs';
+
+const USAGE = `usage: comment-extract [--base <rev>] [--config <file>] [path...] [-- <ast-grep option>...]
+
+The ast-grep config is the "astGrep" key of comments.json. Its rules match
+comment nodes, one rule per language.`;
+
+const opts = cli({ base: { type: 'string' }, config: { type: 'string' } }, USAGE);
+const config = loadConfig(opts.config);
+if (!config.astGrep) fail(`${config.file}: no "astGrep" config`);
+
+const base = opts.base && mergeBase(opts.base);
+const files = listFiles(selector(config, opts.paths), { base });
+if (!files.length) process.exit(0);
+
+const sg = run('ast-grep', ['scan', '--config', config.astGrep, '--json=stream', ...opts.passthrough, ...files]);
+const out = [];
+for (const json of sg.stdout.split('\n')) {
+  if (!json) continue;
+  const m = JSON.parse(json);
+  // ast-grep counts lines and columns from 0; editors and reviewdog from 1.
+  m.text.split('\n').forEach((text, i) => {
+    const column = i ? 1 : m.range.start.column + 1;
+    out.push(`${m.file}:${m.range.start.line + i + 1}:${column}:${text.trimEnd()}`);
+  });
+}
+const lines = out.length ? `${out.join('\n')}\n` : '';
+process.stdout.write(base ? addedOnly(lines, base, { name: 'comment-extract' }).stdout : lines);

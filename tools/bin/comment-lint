@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+// Lint the comments of the selected files with Vale. With --base, reviewdog
+// keeps only the findings on lines added since the merge base.
+import fs from 'node:fs';
+import path from 'node:path';
+import { addedOnly, cli, fail, listFiles, loadConfig, mergeBase, run, selector } from '../lib/common.mjs';
+
+const USAGE = `usage: comment-lint [--base <rev>] [--config <file>] [--level <level>] [--reporter <name>] [path...] [-- <vale option>...]
+
+Vale lints only the comments of a code file. The Vale config is the "vale"
+key of comments.json.
+
+--level     the lowest Vale alert level to report: suggestion, warning
+            (default) or error
+--reporter  a reviewdog reporter, used with --base (default local; in CI,
+            for example github-pr-review)
+
+Exits 1 when any finding is reported.`;
+
+const opts = cli(
+  {
+    base: { type: 'string' },
+    config: { type: 'string' },
+    level: { type: 'string', default: 'warning' },
+    reporter: { type: 'string', default: 'local' },
+  },
+  USAGE
+);
+const config = loadConfig(opts.config);
+if (!config.vale) fail(`${config.file}: no "vale" config`);
+
+const base = opts.base && mergeBase(opts.base);
+const files = listFiles(selector(config, opts.paths), { base });
+if (!files.length) process.exit(0);
+
+// A style that a package provides arrives by `vale sync`. Sync once, when a
+// style the config names is missing.
+const ini = fs.readFileSync(config.vale, 'utf8');
+const stylesPath = path.resolve(path.dirname(config.vale), ini.match(/^StylesPath\s*=\s*(.+)$/m)?.[1].trim() ?? 'styles');
+const styles = [...ini.matchAll(/^BasedOnStyles\s*=\s*(.+)$/gm)].flatMap(m => m[1].split(',').map(s => s.trim()));
+if (styles.some(s => s !== 'Vale' && !fs.existsSync(path.join(stylesPath, s)))) {
+  run('vale', ['--config', config.vale, 'sync']);
+}
+
+const vale = run(
+  'vale',
+  ['--config', config.vale, '--output=line', `--minAlertLevel=${opts.level}`, '--no-exit', ...opts.passthrough, ...files],
+  { check: false }
+);
+if (vale.status !== 0) fail(`vale exited ${vale.status}\n${vale.stderr}`);
+
+if (base) {
+  const r = addedOnly(vale.stdout, base, { reporter: opts.reporter, name: 'comment-lint', failOn: 'any' });
+  process.stdout.write(r.stdout);
+  process.exit(r.status);
+}
+process.stdout.write(vale.stdout);
+process.exit(vale.stdout.trim() ? 1 : 0);

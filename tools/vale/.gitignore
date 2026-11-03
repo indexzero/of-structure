@@ -1,0 +1,3 @@
+# vale sync installs packages here.
+styles/*
+!styles/Comments/
